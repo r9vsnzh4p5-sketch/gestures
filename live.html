@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0D1022">
+<title>График в воздухе</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Unbounded:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  /* График на весь экран; камера — маленькое окошко в углу; рука = светящийся курсор поверх свечей. */
+  :root {
+    --night: #0D1022;
+    --night-glass: rgba(13, 16, 34, .72);
+    --pearl: #EEF0FA;
+    --mist: #8C93B8;
+    --long: #3DDC97;
+    --short: #FF5C7A;
+    --arm: #B7A6FF;
+    --line: rgba(140, 147, 184, .18);
+    --display: Unbounded, "Arial Black", sans-serif;
+    --body: Manrope, -apple-system, system-ui, sans-serif;
+    --st: env(safe-area-inset-top, 0px);
+    --sb: env(safe-area-inset-bottom, 0px);
+    --sl: env(safe-area-inset-left, 0px);
+    --sr: env(safe-area-inset-right, 0px);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--night); color: var(--pearl); font: 500 16px/1.45 var(--body); overflow: hidden; overscroll-behavior: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--arm); outline-offset: 3px; }
+
+  #intro { position: fixed; inset: 0; z-index: 8; background: var(--night); overflow: auto; display: flex; flex-direction: column; justify-content: space-between; gap: 24px;
+    padding: calc(28px + var(--st)) max(24px, var(--sr)) calc(24px + var(--sb)) max(24px, var(--sl)); }
+  #intro h1 { font: 800 clamp(40px, 12vw, 58px)/.96 var(--display); margin: 0 0 14px; letter-spacing: -.02em; }
+  #intro h1 span { display: block; color: var(--arm); }
+  #intro p { margin: 0; color: var(--mist); max-width: 34ch; }
+  .legend { list-style: none; padding: 0; margin: 22px 0 0; }
+  .legend li { display: grid; grid-template-columns: 44px 1fr; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .legend li:last-child { border-bottom: 0; }
+  .legend .g { font-size: 26px; line-height: 1; }
+  .legend small { color: var(--mist); font-size: 14px; }
+  #go { width: 100%; padding: 18px; border: 0; border-radius: 18px; background: var(--pearl); color: var(--night); font-weight: 700; font-size: 17px; }
+  #go:disabled { opacity: .55; cursor: default; }
+  #introMsg { min-height: 22px; margin-top: 12px; color: var(--short); font-size: 14px; text-align: center; }
+
+  #stage { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #top { padding: calc(10px + var(--st)) max(16px, var(--sr)) 8px max(16px, var(--sl)); border-bottom: 1px solid var(--line); }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  #coin { font: 800 30px/1 var(--display); letter-spacing: -.01em; }
+  #price { font: 400 18px/1 var(--display); margin-left: 10px; font-variant-numeric: tabular-nums; }
+  #chg { font: 600 13px/1 var(--display); }
+  #acct { margin-top: 8px; font-size: 14px; color: var(--mist); }
+  .up { color: var(--long); } .down { color: var(--short); }
+  #tfs { display: flex; gap: 4px; margin-top: 8px; }
+  #tfs button { border: 0; background: none; color: var(--mist); font-size: 13px; padding: 5px 10px; border-radius: 8px; }
+  #tfs button.on { background: rgba(238, 240, 250, .12); color: var(--pearl); font-weight: 700; }
+
+  #chartBox { position: relative; flex: 1 1 62%; min-height: 0; }
+  #chart { position: absolute; inset: 0; }
+  #cursor { position: absolute; z-index: 3; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; pointer-events: none;
+    border: 2px solid var(--arm); box-shadow: 0 0 18px var(--arm); opacity: 0; transition: opacity .2s, transform .12s, background .12s; }
+  #cursor.on { opacity: .9; }
+  #cursor.grab { background: color-mix(in srgb, var(--arm) 40%, transparent); transform: scale(.75); }
+
+  #pip { position: relative; flex: 0 0 38%; overflow: hidden; background: #000; border-top: 1px solid var(--line); }
+  #pip video, #pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #pip video { filter: brightness(.85) saturate(.85); }
+  #ring { pointer-events: none; }
+  #status { position: absolute; z-index: 2; left: max(12px, var(--sl)); right: 110px; bottom: calc(12px + var(--sb));
+    padding: 9px 13px; border-radius: 13px; background: var(--night-glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-size: 14px; }
+  #helpBtn { position: absolute; z-index: 2; right: max(12px, var(--sr)); bottom: calc(12px + var(--sb)); padding: 9px 14px;
+    border-radius: 13px; border: 1px solid var(--line); background: var(--night-glass); font-size: 14px; }
+  #camBtn { position: absolute; z-index: 2; left: 50%; top: 40%; transform: translate(-50%, -50%); padding: 14px 22px; border: 0;
+    border-radius: 16px; background: var(--pearl); color: var(--night); font-weight: 700; }
+  #toast { position: fixed; z-index: 6; left: 50%; top: 45%; transform: translate(-50%, 8px); padding: 10px 16px; border-radius: 14px;
+    background: var(--pearl); color: var(--night); font-weight: 700; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #help { position: fixed; inset: 0; z-index: 9; background: rgba(13, 16, 34, .96); overflow: auto;
+    padding: calc(24px + var(--st)) max(24px, var(--sr)) calc(24px + var(--sb)) max(24px, var(--sl)); }
+  #help h2 { font: 600 22px var(--display); margin: 0; }
+  #help p { color: var(--mist); max-width: 40ch; }
+  #helpClose { margin-top: 12px; width: 100%; padding: 16px; border-radius: 16px; border: 0; background: var(--pearl); color: var(--night); font-weight: 700; }
+  @media (prefers-reduced-motion: reduce) { #cursor, #toast { transition: none; } }
+</style>
+</head>
+<body>
+
+<section id="stage">
+  <header id="top">
+    <div class="row">
+      <div><span id="coin">BTC</span><span id="price">—</span></div>
+      <span id="chg"></span>
+    </div>
+    <div id="acct">Загружаю счёт…</div>
+    <div id="tfs"></div>
+  </header>
+  <div id="chartBox">
+    <div id="chart"></div>
+    <div id="cursor"></div>
+  </div>
+  <div id="pip">
+    <video id="video" playsinline muted autoplay></video><canvas id="ring"></canvas>
+    <div id="status">Запускаю камеру…</div>
+    <button id="helpBtn">Жесты</button>
+    <button id="camBtn" hidden>Включить камеру</button>
+  </div>
+</section>
+
+<div id="toast" role="status"></div>
+
+<section id="help" hidden role="dialog" aria-label="Жесты">
+  <h2>Жесты</h2>
+  <ul class="legend" id="legend2"></ul>
+  <p>График можно листать и пальцем. Таймфрейм меняется и кнопками сверху.</p>
+  <button id="helpClose">Понятно</button>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+// Распознавание жестов по 21 точке руки (MediaPipe Hands) и автомат подтверждения.
+// Работает в браузере (window.GT) и в Node для тестов (module.exports).
+(function (root) {
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const FINGERS = [[5, 6, 8], [9, 10, 12], [13, 14, 16], [17, 18, 20]]; // mcp, pip, tip
+
+  function classify(lm) {
+    if (!lm || lm.length < 21) return null;
+    const w = lm[0], size = d(w, lm[9]) || 1e-6;
+    // палец вытянут: кончик заметно дальше от запястья, чем средний сустав
+    const ext = FINGERS.map(([m, p, t]) => d(lm[t], w) > d(lm[p], w) * 1.12 && d(lm[t], lm[m]) > size * 0.55);
+    const [idx, mid, ring, pinky] = ext;
+    const thumbOut = d(lm[4], lm[5]) > size * 0.75 && d(lm[4], lm[9]) > size * 0.8;
+    const knuckles = [5, 9, 13, 17].map(i => lm[i].y);
+    const kTop = Math.min(...knuckles), kBot = Math.max(...knuckles);
+    const nExt = ext.filter(Boolean).length;
+
+    if (nExt === 0) {
+      if (lm[4].y < kTop - size * 0.35 && lm[4].y < lm[3].y) return "Thumb_Up";
+      if (lm[4].y > kBot + size * 0.35 && lm[4].y > lm[3].y) return "Thumb_Down";
+      if (!thumbOut || d(lm[4], lm[9]) < size * 1.0) return "Closed_Fist";
+      return null;
+    }
+    if (nExt === 4 && thumbOut) return "Open_Palm";
+    if (idx && pinky && !mid && !ring && thumbOut) return "ILoveYou";
+    if (idx && mid && !ring && !pinky) return "Victory";
+    if (idx && !mid && !ring && !pinky && lm[8].y < lm[5].y - size * 0.4) return "Pointing_Up";
+    return null;
+  }
+
+  // Сглаживание: жест засчитывается, если он победил в большинстве последних кадров
+  function makeSmoother(n = 5) {
+    const buf = [];
+    return g => {
+      buf.push(g); if (buf.length > n) buf.shift();
+      const c = {}; for (const x of buf) c[x] = (c[x] || 0) + 1;
+      let best = null, cnt = 0;
+      for (const k in c) if (c[k] > cnt) { best = k; cnt = c[k]; }
+      return cnt > n / 2 && best !== "null" ? best : null;
+    };
+  }
+
+  const ACTIONS = { Thumb_Up: "long", Thumb_Down: "short", Closed_Fist: "close" };
+
+  function makeFSM({ hold = 800, armTimeout = 4000, cooldown = 3000, confirm = true } = {}) {
+    const s = { cur: null, since: 0, used: false, armed: null, armedUntil: 0, cooldownUntil: 0, chart: false };
+    s.progress = now => (!s.cur || s.used) ? 0 : Math.min(1, (now - s.since) / hold);
+    s.step = (g, now) => {
+      if (s.armed && now > s.armedUntil) { s.armed = null; return { kind: "cancel", why: "timeout" }; }
+      if (g !== s.cur) { s.cur = g; s.since = now; s.used = false; return null; }
+      if (!g || s.used || now - s.since < hold) return null;
+      s.used = true;
+      if (g === "ILoveYou") { s.armed = null; s.chart = !s.chart; return { kind: "mode", chart: s.chart }; }
+      if (s.chart) return null;                       // в режиме графика торговые жесты молчат
+      if (g === "Open_Palm") { if (s.armed) { s.armed = null; return { kind: "cancel", why: "palm" }; } return null; }
+      if (now < s.cooldownUntil) return null;
+      if (g === "Victory" && !s.armed) { s.cooldownUntil = now + 800; return { kind: "next" }; }
+      if (ACTIONS[g] && !confirm) { s.cooldownUntil = now + cooldown; return { kind: "fire", act: ACTIONS[g] }; }
+      if (ACTIONS[g]) { s.armed = ACTIONS[g]; s.armedUntil = now + armTimeout; return { kind: "armed", act: s.armed }; }
+      if (g === "Pointing_Up" && s.armed) { const a = s.armed; s.armed = null; s.cooldownUntil = now + cooldown; return { kind: "fire", act: a }; }
+      return null;
+    };
+    return s;
+  }
+
+  const api = { classify, makeSmoother, makeFSM, ACTIONS };
+  if (typeof module !== "undefined" && module.exports) module.exports = api; else root.GT = api;
+})(typeof window !== "undefined" ? window : globalThis);
+
+</script>
+<script>
+// Автономная тестовая версия: виртуальный счёт в браузере, цены с публичного API Bybit (запасной вариант — Binance).
+// Отвечает на те же запросы, что и сервер бота, поэтому страница не замечает разницы.
+window.LOCAL_API = (() => {
+  const SYMS = ["BTC", "ETH", "SOL", "DOGE"], SL = 1.5, TP = 3, RISK = 1, LEV = 5, FEE = 0.00055, START = 1000;
+  const BYBIT_TF = { "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D" };
+  const TF_SEC = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
+  let source = null;   // какой источник ответил: bybit / binance / sim
+
+  let acc;
+  try { acc = JSON.parse(localStorage.getItem("gt_paper")); } catch {}
+  if (!acc || typeof acc.cash !== "number") acc = { cash: START, pos: {} };
+  const save = () => { try { localStorage.setItem("gt_paper", JSON.stringify(acc)); } catch {} };
+
+  const getJSON = async url => { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error(r.status); return r.json(); };
+
+  // ---- симуляция на случай, если биржи недоступны ----
+  const SIM_BASE = { BTC: 68000, ETH: 3400, SOL: 160, DOGE: 0.16 };
+  function simSeries(coin, tf, n) {
+    const step = TF_SEC[tf], end = Math.floor(Date.now() / 1000 / step) * step;
+    let seed = [...coin + tf].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let p = SIM_BASE[coin], out = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const o = p, c = o * (1 + (rnd() - .5) * .006 * Math.sqrt(step / 900));
+      out.push([end - i * step, o, Math.max(o, c) * (1 + rnd() * .002), Math.min(o, c) * (1 - rnd() * .002), c, 0]);
+      p = c;
+    }
+    const last = out[out.length - 1];                // живая последняя свеча
+    const wob = 1 + Math.sin(Date.now() / 7000) * .0015;
+    last[4] = last[1] * wob; last[2] = Math.max(last[2], last[4]); last[3] = Math.min(last[3], last[4]);
+    return out;
+  }
+
+  async function klines(coin, tf, n) {
+    if (source !== "binance" && source !== "sim") {
+      try {
+        const j = await getJSON(`https://api.bybit.com/v5/market/kline?category=linear&symbol=${coin}USDT&interval=${BYBIT_TF[tf]}&limit=${n}`);
+        const rows = j.result.list.map(r => [Math.floor(+r[0] / 1000), +r[1], +r[2], +r[3], +r[4], +r[5]]).reverse();
+        if (rows.length) { source = "bybit"; return rows; }
+      } catch {}
+    }
+    if (source !== "sim") {
+      try {
+        const rows = (await getJSON(`https://api.binance.com/api/v3/klines?symbol=${coin}USDT&interval=${tf}&limit=${n}`))
+          .map(r => [Math.floor(r[0] / 1000), +r[1], +r[2], +r[3], +r[4], +r[5]]);
+        if (rows.length) { source = "binance"; return rows; }
+      } catch {}
+    }
+    source = "sim";
+    return simSeries(coin, tf, n);
+  }
+  const price = async coin => { const k = await klines(coin, "1m", 1); return k[k.length - 1][4]; };
+
+  const pnl = (p, px) => (px - p.entry) * p.size * (p.side === "long" ? 1 : -1);
+  function closePos(coin, px) {
+    const p = acc.pos[coin]; delete acc.pos[coin];
+    const r = pnl(p, px) - (p.entry + px) * p.size * FEE;
+    acc.cash += r; save(); return r;
+  }
+  function check(coin, px) {
+    const p = acc.pos[coin]; if (!p) return null;
+    const long = p.side === "long";
+    if (long ? px <= p.stop : px >= p.stop) return ["стоп", closePos(coin, p.stop)];
+    if (long ? px >= p.tp : px <= p.tp) return ["тейк", closePos(coin, p.tp)];
+    return null;
+  }
+  const fmt = x => String(+(+x).toPrecision(6));
+  const srcName = () => source === "bybit" ? "цены Bybit" : source === "binance" ? "цены Binance" : "симуляция цен";
+
+  return async (path, opts = {}) => {
+    const u = new URL(path, "https://x/"), q = u.searchParams;
+    const coin = (q.get("s") || "BTC").toUpperCase();
+    if (u.pathname === "/api/meta") return { symbols: SYMS, sl: SL, tp: TP, risk: RISK, account: "paper" };
+    if (u.pathname === "/api/klines") return klines(coin, q.get("tf") || "15m", Math.min(+q.get("n") || 500, 1000));
+    if (u.pathname === "/api/state") {
+      const px = await price(coin); check(coin, px);
+      const p = acc.pos[coin];
+      const eq = acc.cash + (p ? pnl(p, px) : 0);
+      return { symbol: coin, price: px, equity: eq, account: "paper", source: srcName(),
+               pos: p ? { side: p.side, size: p.size, entry: p.entry, pnl: pnl(p, px), stop: p.stop, tp: p.tp } : null };
+    }
+    if (u.pathname === "/api/action") {
+      const body = JSON.parse(opts.body || "{}"), a = body.a, coin = String(body.s || "BTC").toUpperCase();
+      if (!SYMS.includes(coin)) return { ok: false, msg: "Монеты нет в списке" };
+      const px = await price(coin); check(coin, px);
+      const p = acc.pos[coin];
+      if (a === "close") {
+        if (!p) return { ok: false, msg: `По ${coin} нет позиции` };
+        const r = closePos(coin, px);
+        return { ok: true, msg: `Позиция ${coin} закрыта: ${r >= 0 ? "+" : ""}${r.toFixed(2)}$` };
+      }
+      if (p) return { ok: false, msg: `По ${coin} уже есть позиция. Сначала закрой её кулаком` };
+      const long = a === "long", k = long ? 1 : -1;
+      const stop = px * (1 - k * SL / 100), tp = px * (1 + k * TP / 100);
+      let size = acc.cash * RISK / 100 / Math.abs(px - stop);
+      size = +Math.min(size, acc.cash * LEV / px).toPrecision(6);
+      acc.pos[coin] = { side: a, size, entry: px, stop, tp }; save();
+      return { ok: true, msg: `${long ? "Лонг" : "Шорт"} ${coin} ${size} по ${fmt(px)}, стоп −${SL}%, тейк +${TP}%` };
+    }
+    throw new Error("Неизвестный запрос");
+  };
+})();
+
+</script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+const ROWS = [["✊", "Сжать кулак и вести рукой", "влево-вправо листает, вверх приближает, вниз отдаляет"],
+  ["✋", "Ладонь, подержать секунду", "вернуться к последним свечам"],
+  ["✌️", "V, подержать секунду", "следующая монета"],
+  ["☝️", "Указательный, подержать секунду", "следующий таймфрейм"]];
+for (const id of ["legend2"]) $(id).innerHTML = ROWS.map(([g, t, s]) => `<li><span class="g">${g}</span><span><b>${t}</b><br><small>${s}</small></span></li>`).join("");
+$("helpBtn").onclick = () => { $("help").hidden = false; };
+$("helpClose").onclick = () => { $("help").hidden = true; };
+
+let toastT;
+function toast(t) { const e = $("toast"); e.textContent = t; e.className = "show"; clearTimeout(toastT); toastT = setTimeout(() => e.className = "", 1400); }
+
+// ---------- данные (сервер бота или автономный режим) ----------
+let TOKEN = null;
+try { TOKEN = new URLSearchParams(location.hash.slice(1)).get("t") || localStorage.getItem("gt_token"); } catch {}
+async function api(path) {
+  if (window.LOCAL_API) return window.LOCAL_API(path, {});
+  const r = await fetch(path, { headers: { "X-Token": TOKEN || "" } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Ошибка ${r.status}`);
+  return j;
+}
+
+let SYMS = ["BTC", "ETH", "SOL", "DOGE"], symIdx = 0, TF = "15m";
+const TFS = [["1m", "1м"], ["5m", "5м"], ["15m", "15м"], ["1h", "1ч"], ["4h", "4ч"], ["1d", "1д"]];
+try { symIdx = +localStorage.getItem("gc_sym") || 0; TF = localStorage.getItem("gc_tf") || TF; } catch {}
+const coin = () => SYMS[symIdx % SYMS.length];
+const fmtP = p => p == null ? "—" : p >= 1000 ? p.toLocaleString("ru-RU", { maximumFractionDigits: 1 }) : String(+(+p).toPrecision(5));
+
+// ---------- график ----------
+let chart, series, lastBar = null, rows = [], lines = [];
+const tz = -new Date().getTimezoneOffset() * 60;
+const bar = r => ({ time: r[0] + tz, open: r[1], high: r[2], low: r[3], close: r[4] });
+function initChart() {
+  const LW = window.LightweightCharts;
+  chart = LW.createChart($("chart"), {
+    autoSize: true,
+    layout: { background: { type: "solid", color: css("--night") }, textColor: css("--mist"), fontFamily: "Manrope, sans-serif", fontSize: 11 },
+    grid: { vertLines: { color: "rgba(140,147,184,.07)" }, horzLines: { color: "rgba(140,147,184,.07)" } },
+    rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, timeVisible: true, rightOffset: 4 },
+    crosshair: { mode: LW.CrosshairMode.Normal },
+  });
+  series = chart.addSeries(LW.CandlestickSeries, { upColor: css("--long"), downColor: css("--short"), borderVisible: false, wickUpColor: css("--long"), wickDownColor: css("--short") });
+  renderTfs();
+}
+function renderTfs() {
+  $("tfs").innerHTML = TFS.map(([v, l]) => `<button data-tf="${v}" class="${v === TF ? "on" : ""}">${l}</button>`).join("");
+  $("tfs").onclick = e => { const b = e.target.closest("button"); if (b) setTf(b.dataset.tf); };
+}
+function setTf(tf) { TF = tf; try { localStorage.setItem("gc_tf", TF); } catch {} renderTfs(); load(); }
+let req = 0;
+async function load() {
+  const my = ++req;
+  $("coin").textContent = coin();
+  try {
+    rows = await api(`/api/klines?s=${coin()}&tf=${TF}&n=500`);
+    if (my !== req) return;
+    series.setData(rows.map(bar)); lastBar = rows.at(-1)?.[0] ?? null;
+    chart.timeScale().setVisibleLogicalRange({ from: rows.length - 80, to: rows.length + 4 });
+    head();
+  } catch (e) { toast(e.message); }
+}
+async function tick() {
+  if (!series || document.hidden) return;
+  try {
+    for (const r of await api(`/api/klines?s=${coin()}&tf=${TF}&n=2`)) if (lastBar == null || r[0] >= lastBar) { series.update(bar(r)); lastBar = r[0]; rows[rows.length - 1] = r; }
+    head();
+  } catch {}
+}
+function head() {
+  const last = rows.at(-1); if (!last) return;
+  const first = rows.at(-Math.min(rows.length, { "1m": 1440, "5m": 288, "15m": 96, "1h": 24, "4h": 6, "1d": 1 }[TF] + 1)) || rows[0];
+  $("price").textContent = fmtP(last[4]);
+  const ch = (last[4] / first[4] - 1) * 100;
+  $("chg").textContent = `${ch >= 0 ? "+" : ""}${ch.toFixed(2)}% за сутки`; $("chg").className = ch >= 0 ? "up" : "down";
+}
+async function account() {
+  try {
+    const s = await api(`/api/state?s=${coin()}`);
+    const name = s.account === "paper" ? "Виртуальный счёт" : s.account === "demo" ? "Демо Bybit" : s.account === "live" ? "Реальный счёт" : "Счёт";
+    let t = `${name}: ${s.equity != null ? s.equity.toFixed(2) + " USDT" : "—"}`;
+    lines.forEach(l => series.removePriceLine(l)); lines = [];
+    if (s.pos) {
+      const p = s.pos; t += ` · ${p.side === "long" ? "лонг" : "шорт"} ${p.size} · ${p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}$`;
+      const add = (price, color, title, st) => price && lines.push(series.createPriceLine({ price, color, lineWidth: 1, lineStyle: st, title }));
+      add(p.entry, css("--pearl"), "вход", 2); add(p.stop, css("--short"), "стоп", 0); add(p.tp, css("--long"), "тейк", 0);
+    }
+    $("acct").textContent = t;
+  } catch (e) { $("acct").textContent = e.message; }
+}
+function nextCoin() { symIdx = (symIdx + 1) % SYMS.length; try { localStorage.setItem("gc_sym", symIdx); } catch {} load(); account(); toast(coin()); }
+function nextTf() { const i = TFS.findIndex(t => t[0] === TF); setTf(TFS[(i + 1) % TFS.length][0]); toast(TFS[(TFS.findIndex(t => t[0] === TF))][1]); }
+
+// ---------- рука ----------
+const smooth = GT.makeSmoother(5), HOLD = 900;
+let cur = null, since = 0, used = false, grab = null, cx = null, cy = null;
+function onHand(lm, g, now) {
+  // удержание для ✋ ✌️ ☝️
+  if (g !== cur) { cur = g; since = now; used = false; }
+  else if (g && !used && g !== "Closed_Fist" && now - since >= HOLD) {
+    used = true;
+    if (g === "Open_Palm") { chart.timeScale().scrollToRealTime(); toast("К последним свечам"); }
+    if (g === "Victory") nextCoin();
+    if (g === "Pointing_Up") nextTf();
+  }
+  // курсор руки над графиком
+  const box = $("chartBox").getBoundingClientRect();
+  if (lm) {
+    const tx = (1 - lm[9].x) * box.width, ty = Math.min(1, Math.max(0, (lm[9].y - .15) / .7)) * box.height;
+    cx = cx == null ? tx : cx + (tx - cx) * .35; cy = cy == null ? ty : cy + (ty - cy) * .35;
+    $("cursor").style.left = cx + "px"; $("cursor").style.top = cy + "px";
+  } else cx = cy = null;
+  $("cursor").classList.toggle("on", !!lm);
+  $("cursor").classList.toggle("grab", g === "Closed_Fist");
+  // кулак = схватил график
+  if (lm && g === "Closed_Fist") {
+    const x = 1 - lm[9].x, y = lm[9].y, ts = chart.timeScale();
+    if (!grab) { const r = ts.getVisibleLogicalRange(); if (r) grab = { x, y, from: r.from, to: r.to }; }
+    else {
+      const w0 = grab.to - grab.from;
+      let dx = x - grab.x, dy = y - grab.y;
+      if (Math.abs(dx) < .012) dx = 0; if (Math.abs(dy) < .02) dy = 0;
+      const w = Math.min(800, Math.max(15, w0 * Math.exp(dy * 2.6)));
+      const to = grab.to - dx * w0 * 1.4;
+      ts.setVisibleLogicalRange({ from: to - w, to });
+    }
+  } else grab = null;
+
+  $("status").textContent = !lm ? "Покажи руку камере"
+    : g === "Closed_Fist" ? "Листаю график"
+    : g === "Open_Palm" ? "✋ держи: к последним свечам"
+    : g === "Victory" ? "✌️ держи: следующая монета"
+    : g === "Pointing_Up" ? "☝️ держи: следующий таймфрейм"
+    : "Сожми кулак и веди рукой";
+  drawPip(lm, g, g && !used && g !== "Closed_Fist" ? Math.min(1, (now - since) / HOLD) : 0);
+}
+const ring = $("ring"), rc = ring.getContext("2d"), video = $("video");
+function drawPip(lm, g, prog) {
+  const W = ring.clientWidth, H = ring.clientHeight, d = Math.min(devicePixelRatio || 1, 2);
+  if (ring.width !== W * d) { ring.width = W * d; ring.height = H * d; }
+  rc.setTransform(d, 0, 0, d, 0, 0); rc.clearRect(0, 0, W, H);
+  if (!lm) return;
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1, s = Math.max(W / vw, H / vh), ox = (W - vw * s) / 2, oy = (H - vh * s) / 2;
+  const P = p => [p.x * vw * s + ox, p.y * vh * s + oy];
+  rc.fillStyle = g === "Closed_Fist" ? css("--arm") : "rgba(238,240,250,.8)";
+  for (const p of lm) { const [x, y] = P(p); rc.beginPath(); rc.arc(x, y, 1.8, 0, 7); rc.fill(); }
+  if (prog > 0) {
+    const [x, y] = P(lm[9]);
+    rc.strokeStyle = css("--arm"); rc.lineWidth = 4; rc.lineCap = "round";
+    rc.beginPath(); rc.arc(x, y, 24, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); rc.stroke();
+  }
+}
+
+const TASKS_MIRRORS = ["https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14", "https://unpkg.com/@mediapipe/tasks-vision@0.10.14"];
+const MODEL_URLS = [
+  "gesture_recognizer.task",   // если положить модель рядом со страницей
+  "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
+  "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task",
+];
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms))]);
+
+// модель храним в телефоне (IndexedDB), чтобы качать один раз
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    const o = indexedDB.open("gt", 1);
+    o.onupgradeneeded = () => o.result.createObjectStore("kv");
+    o.onerror = () => rej(o.error);
+    o.onsuccess = () => { const tx = o.result.transaction("kv", mode); const r = fn(tx.objectStore("kv")); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); };
+  });
+}
+async function download(url, status, label) {
+  const ctl = new AbortController(); let stall;
+  const arm = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort(), 15000); };   // 15 с без данных = обрыв
+  arm();
+  const r = await fetch(url, { signal: ctl.signal });
+  if (!r.ok) { clearTimeout(stall); throw new Error(`HTTP ${r.status}`); }
+  const total = +r.headers.get("content-length") || 8.4e6, chunks = []; let got = 0;
+  const rd = r.body.getReader();
+  for (;;) {
+    const { done, value } = await rd.read(); if (done) break;
+    chunks.push(value); got += value.length; arm();
+    status(`${label}: ${(got / 1e6).toFixed(1)} из ${(total / 1e6).toFixed(1)} МБ`);
+  }
+  clearTimeout(stall);
+  const buf = new Uint8Array(got); let off = 0; for (const c of chunks) { buf.set(c, off); off += c.length; }
+  if (got < 1e6) throw new Error("файл модели битый");
+  return buf;
+}
+async function getModel(status) {
+  try { const c = await idb("readonly", st => st.get("model")); if (c && c.byteLength > 1e6) return new Uint8Array(c); } catch {}
+  let lastErr;
+  for (const [i, u] of MODEL_URLS.entries()) {
+    try {
+      const buf = await download(u, status, i === 0 ? "Модель с сайта" : "Скачиваю модель");
+      try { await idb("readwrite", st => st.put(buf.buffer, "model")); } catch {}
+      return buf;
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error("модель не скачалась: серверы Google недоступны с этого интернета" + (lastErr ? ` (${lastErr.message})` : ""));
+}
+async function makeRecognizer(status) {
+  let mod, TASKS;
+  for (const [i, m] of TASKS_MIRRORS.entries()) {
+    status(`Загружаю библиотеку${i ? " (запасной сервер)" : ""}…`);
+    try { mod = await withTimeout(import(m + "/vision_bundle.mjs"), 20000, "тайм-аут"); TASKS = m; break; } catch {}
+  }
+  if (!mod) throw new Error("не скачалась библиотека с jsdelivr и unpkg");
+  const { FilesetResolver, GestureRecognizer } = mod;
+  const files = await withTimeout(FilesetResolver.forVisionTasks(TASKS + "/wasm"), 30000, "wasm не скачался");
+  const model = await getModel(status);
+  status("Запускаю распознавание…");
+  const opts = delegate => ({ baseOptions: { modelAssetBuffer: model, delegate }, runningMode: "VIDEO", numHands: 1,
+    minHandDetectionConfidence: .5, minHandPresenceConfidence: .5, minTrackingConfidence: .5 });
+  try { return await withTimeout(GestureRecognizer.createFromOptions(files, opts("GPU")), 15000, "GPU не ответил"); }
+  catch { status("Пробую без видеокарты…"); return await withTimeout(GestureRecognizer.createFromOptions(files, opts("CPU")), 30000, "модель не загрузилась"); }
+}
+
+
+let rec = null;
+async function startCamera() {
+  $("camBtn").hidden = true; $("status").textContent = "Запускаю камеру…";
+  try {
+    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    await video.play();
+  } catch {
+    $("status").textContent = "Нет доступа к камере: Настройки → Safari → Камера → Разрешить";
+    $("camBtn").hidden = false; return;
+  }
+  if (!rec) {
+    try { rec = await makeRecognizer(t => { $("status").textContent = t; }); }
+    catch (e) { $("status").textContent = (e.message || e) + ". Включи Wi-Fi или VPN и обнови страницу."; return; }
+  }
+  $("status").textContent = "Покажи руку камере";
+  try { await navigator.wakeLock?.request("screen"); } catch {}
+  let lastT = -1;
+  const pump = () => {
+    requestAnimationFrame(pump);
+    if (video.readyState < 2) return;
+    const now = performance.now(); if (now - lastT < 40) return; lastT = now;
+    let r; try { r = rec.recognizeForVideo(video, now); } catch { return; }
+    const lm = r.landmarks && r.landmarks[0] || null;
+    const top = r.gestures && r.gestures[0] && r.gestures[0][0];
+    const name = top && top.score >= .55 && top.categoryName !== "None" ? top.categoryName : null;
+    onHand(lm, smooth(lm ? (name || GT.classify(lm)) : null), now);
+  };
+  pump();
+}
+$("camBtn").onclick = startCamera;
+
+// график и счёт показываем сразу, камера и жесты подключаются следом
+initChart(); load(); account();
+setInterval(tick, 4000); setInterval(account, 5000);
+startCamera();
+
+(async () => { try { const m = await api("/api/meta"); SYMS = m.symbols || SYMS; } catch {} })();
+document.addEventListener("visibilitychange", () => { if (!document.hidden && series) { tick(); account(); } });
+})();
+</script>
+</body>
+</html>
